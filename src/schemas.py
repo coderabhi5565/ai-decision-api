@@ -39,3 +39,7 @@ class TicketResponse(BaseModel):
     decision: DecisionResponse | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
