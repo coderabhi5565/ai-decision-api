@@ -1,126 +1,119 @@
 # Development Notes
 
-This project was developed primarily by implementing and understanding
-the requirements step by step.
+This project was developed by implementing and understanding the
+requirements step by step.
 
-AI assistance was used as a learning and debugging aid during development,
-rather than as a replacement for writing the application.
+AI assistance was used as a learning and debugging aid during development.
+It was mainly used to understand unfamiliar concepts, troubleshoot issues,
+and understand Streamlit implementation details. The suggested solutions
+were tested and modified when required.
 
-## How AI Assistance Was Used
+## AI Assistance
 
-AI assistance was mainly used in the following situations:
+AI assistance was used to help understand and debug:
 
-- When I encountered a concept that I had not worked with before, I first
-  used AI to understand the concept, its purpose, and how it fits into the
-  application. I then implemented it in the project.
+- FastAPI authentication and JWT
+- Streamlit and HTTP communication
+- Automated testing and mocking
 
-- When I encountered implementation or debugging issues, I used AI to
-  understand the cause of the problem and possible solutions, and then
-  applied the required changes.
+The application was implemented incrementally based on the assignment
+requirements rather than blindly accepting generated solutions.
 
-- AI was used to help understand and debug issues related to:
-  - FastAPI authentication and JWT
-  - SQLAlchemy database interactions
-  - Streamlit and HTTP communication
-  - Automated testing and mocking
+---
 
-- AI assistance was also used during the Streamlit implementation,
-  particularly for understanding the Streamlit APIs and connecting the
-  frontend to the FastAPI backend.
+## Design Principles
 
-## Coding Approach
+### 1. Separation of Concerns
 
-The application code was written and implemented incrementally based on
-the assignment requirements.
+Different responsibilities are kept in separate modules.
 
-The development process generally followed this pattern:
+- `api.py` handles HTTP endpoints.
+- `auth.py` handles password hashing and JWT authentication.
+- `database.py` manages database sessions.
+- `models.py` defines database entities.
+- `schemas.py` handles API validation.
+- `retrieval.py` handles knowledge-base retrieval.
+- `decision.py` handles LLM decision generation and validation.
 
-1. Understand the requirement.
-2. Identify any unfamiliar concept.
-3. Learn the concept with the help of AI when necessary.
-4. Implement the concept in the project.
-5. Run and test the implementation.
-6. Debug issues when they occurred.
-7. Review the final implementation against the assignment requirements.
+This keeps unrelated responsibilities from being mixed together.
 
-AI suggestions were not treated as automatically correct. Implementations
-were tested locally and modified when required.
+### 2. Single Responsibility Principle
 
-## Engineering Decisions
+Each major module has a focused responsibility.
 
-### 1. Retrieve Only the Most Relevant Policy Chunks
+For example, `retrieval.py` is responsible for finding relevant policy
+context, while `decision.py` uses that context to generate the final
+structured AI decision.
 
-Instead of sending the complete knowledge base to Gemini for every ticket,
-the retrieval layer selects the top 3 most relevant policy chunks using
-embedding similarity.
+This makes individual components easier to understand, test, and modify.
 
-I checked the retrieval results on the supplied sample cases. The correct
-policy document was ranked first for the concrete cases, including damaged
-goods, returns, shipping, and wrong-item tickets.
+### 3. Dependency Injection
 
-I chose top-k retrieval because it keeps the amount of policy context sent
-to the model focused on the current ticket. It also avoids introducing
-unnecessary context as the knowledge base grows.
+FastAPI dependency injection is used for database sessions and the
+authenticated user.
 
-I considered adding a similarity-score threshold that would reject low
-scoring retrievals. However, the observed scores for the intentionally
-incomplete case overlapped with scores from valid cases, so I did not add
-a hard threshold based only on similarity.
+For example:
 
-### 2. Keep Ticket and Decision Persistence Atomic
+```python
+db: Session = Depends(get_db)
 
-Creating a ticket and storing its AI decision are treated as one database
+The database dependency can also be replaced during testing with an
+in-memory SQLite database. This allows API tests to run independently
+of the actual application database.
+
+4. Keep It Simple (KISS)
+
+The project avoids unnecessary infrastructure because the assignment
+has a small scope.
+
+The RAG pipeline uses Gemini embeddings, NumPy, and cosine similarity
+instead of introducing a hosted vector database.
+
+Similarly, the application uses a single FastAPI backend and SQLite
+instead of introducing microservices, Redis, Kafka, or other unnecessary
+components.
+
+Engineering Decisions
+Top-K Retrieval
+
+The retrieval layer selects the top 3 most relevant policy chunks instead
+of sending the complete knowledge base to Gemini for every ticket.
+
+A similarity threshold was considered, but it was not used because the
+observed similarity scores of valid and incomplete cases overlapped.
+
+Atomic Persistence
+
+Ticket creation and decision persistence are handled in the same database
 transaction.
 
-The ticket is added to the database first, but the transaction is not
-committed until the AI decision has been generated and the corresponding
-decision record has also been added.
+The ticket is flushed to obtain its ID, the AI decision is generated,
+and both are committed together. If the AI or database operation fails,
+the transaction is rolled back.
 
-If the AI service or database operation fails, the transaction is rolled
-back.
+This prevents a ticket from being stored without its corresponding
+decision.
 
-This prevents the database from containing a ticket that appears in the
-user's history without its corresponding decision.
+Testing
 
-### Separate Retrieval and Decision Layers
+The API test suite uses an in-memory SQLite database and mocks the Gemini
+decision function.
 
-The retrieval and decision-generation logic are kept separate.
+This makes the tests deterministic and prevents them from depending on
+Gemini API availability or consuming API quota.
 
-The retrieval layer is responsible for finding relevant policy chunks,
-while the decision layer uses the retrieved context to generate and
-validate
-the structured AI decision.
+The separate evaluation script uses the actual Gemini API and the supplied
+sample test cases to evaluate the AI decision pipeline.
 
-This keeps the components easier to understand, test, and modify
-independently.
-
-## Testing Approach
-
-Automated API tests use an in-memory SQLite database.
-
-The Gemini decision function is mocked in API tests so that the automated
-test suite does not depend on network availability or consume Gemini API
-quota.
-
-The separate evaluation script uses the actual Gemini API to evaluate
-the AI decision pipeline against the supplied sample test cases.
-
-## Security
+Security
 
 The application uses:
 
-- Argon2 password hashing
-- JWT authentication
-- User-level authorization
-- Pydantic request validation
-- Environment variables for API keys and secrets
-- .env excluded from Git
+Argon2 password hashing
+JWT authentication
+User-level authorization
+Pydantic request validation
+Environment variables for secrets
 
-## Development Summary
-
-AI assistance was used primarily as a learning, debugging, and
-implementation-support tool.
-
-The goal was to understand the concepts involved and then implement and
-test them as part of the project, rather than blindly accepting generated
-code.
+The .env file is excluded from Git, while .env.example is included
+for configuration reference.
