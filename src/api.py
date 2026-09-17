@@ -9,9 +9,11 @@ from .auth import (
     verify_password,
 )
 from .database import Base, engine, get_db
-from .models import User
+from .models import Ticket,User
 from .schemas import (
     LoginRequest,
+    TicketCreate,
+    TicketResponse,
     TokenResponse,
     UserCreate,
     UserResponse,
@@ -108,3 +110,60 @@ def get_me(
     current_user: User = Depends(get_current_user)
 ):
     return current_user
+
+@app.post(
+    "/tickets",
+    response_model=TicketResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_ticket(
+    ticket_data: TicketCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    ticket = Ticket(
+        user_id=current_user.id,
+        message=ticket_data.message
+    )
+
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+
+    return ticket
+
+@app.get(
+    "/tickets",
+    response_model=list[TicketResponse]
+)
+def get_tickets(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    tickets = db.query(Ticket).filter(
+        Ticket.user_id == current_user.id
+    ).all()
+
+    return tickets
+
+@app.get(
+    "/tickets/{ticket_id}",
+    response_model=TicketResponse
+)
+def get_ticket(
+    ticket_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id,
+        Ticket.user_id == current_user.id
+    ).first()
+
+    if ticket is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ticket not found"
+        )
+
+    return ticket
