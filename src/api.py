@@ -182,13 +182,16 @@ def create_ticket(
             }
         }
 
-    except APIError:
-        db.rollback()
+    except APIError as exc:
+       db.rollback()
 
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI service is temporarily unavailable"
-        )
+       print("GEMINI API ERROR:")
+       print(type(exc).__name__, exc)
+
+       raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="AI service is temporarily unavailable"
+      )
 
     except SQLAlchemyError:
         db.rollback()
