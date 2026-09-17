@@ -14,6 +14,7 @@ from .auth import (
 from .database import Base, engine, get_db
 from .decision import make_decision
 from .models import Decision, Ticket, User
+from .retrieval import ingest_knowledge_base, vector_store_exists
 from .schemas import (
     LoginRequest,
     TicketCreate,
@@ -25,6 +26,10 @@ from .schemas import (
 
 
 Base.metadata.create_all(bind=engine)
+
+
+if not vector_store_exists():
+    ingest_knowledge_base()
 
 
 app = FastAPI(

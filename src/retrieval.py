@@ -5,8 +5,10 @@ import numpy as np
 from google import genai
 
 
-KNOWLEDGE_BASE_DIR = Path("knowledge_base")
-VECTOR_STORE_DIR = Path("data/vector_store")
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+KNOWLEDGE_BASE_DIR = BASE_DIR / "knowledge_base"
+VECTOR_STORE_DIR = BASE_DIR / "data" / "vector_store"
 
 EMBEDDING_MODEL = "gemini-embedding-001"
 
@@ -156,6 +158,12 @@ def ingest_knowledge_base() -> None:
     print(f"Created chunks: {len(chunks)}")
     print(f"Embedding shape: {embeddings.shape}")
     print("Knowledge base ingestion completed.")
+
+def vector_store_exists() -> bool:
+    return (
+        (VECTOR_STORE_DIR / "embeddings.npy").exists()
+        and (VECTOR_STORE_DIR / "metadata.json").exists()
+    )
 
 def load_vector_store() -> tuple[list[dict], np.ndarray]:
     embeddings_path = VECTOR_STORE_DIR / "embeddings.npy"
