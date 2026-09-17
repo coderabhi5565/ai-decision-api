@@ -1,5 +1,8 @@
+import json
+
 from fastapi import Depends, FastAPI, HTTPException, status
-from sqlalchemy.exc import IntegrityError
+from google.genai.errors import APIError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .auth import (
@@ -9,7 +12,8 @@ from .auth import (
     verify_password,
 )
 from .database import Base, engine, get_db
-from .models import Ticket,User
+from .decision import make_decision
+from .models import Decision, Ticket, User
 from .schemas import (
     LoginRequest,
     TicketCreate,
@@ -21,6 +25,7 @@ from .schemas import (
 
 
 Base.metadata.create_all(bind=engine)
+
 
 app = FastAPI(
     title="AI Decision API",
@@ -70,6 +75,14 @@ def register(
             detail="Email already registered"
         )
 
+    except SQLAlchemyError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error while creating user"
+        )
+
     return user
 
 
@@ -81,9 +94,16 @@ def login(
     login_data: LoginRequest,
     db: Session = Depends(get_db)
 ):
-    user = db.query(User).filter(
-        User.email == login_data.email
-    ).first()
+    try:
+        user = db.query(User).filter(
+            User.email == login_data.email
+        ).first()
+
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error while logging in"
+        )
 
     if user is None or not verify_password(
         login_data.password,
@@ -111,6 +131,7 @@ def get_me(
 ):
     return current_user
 
+
 @app.post(
     "/tickets",
     response_model=TicketResponse,
@@ -126,11 +147,60 @@ def create_ticket(
         message=ticket_data.message
     )
 
-    db.add(ticket)
-    db.commit()
-    db.refresh(ticket)
+    try:
+        db.add(ticket)
+        db.flush()
 
-    return ticket
+        decision = make_decision(ticket_data.message)
+
+        ticket_decision = Decision(
+            ticket_id=ticket.id,
+            action=decision.action,
+            reason=decision.reason,
+            confidence=decision.confidence,
+            sources=json.dumps(decision.sources)
+        )
+
+        db.add(ticket_decision)
+        db.commit()
+        db.refresh(ticket)
+
+        return {
+            "id": ticket.id,
+            "message": ticket.message,
+            "created_at": ticket.created_at,
+            "decision": {
+                "action": decision.action,
+                "reason": decision.reason,
+                "confidence": decision.confidence,
+                "sources": decision.sources
+            }
+        }
+
+    except APIError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI service is temporarily unavailable"
+        )
+
+    except SQLAlchemyError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error while processing ticket"
+        )
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process ticket"
+        )
+
 
 @app.get(
     "/tickets",
@@ -140,11 +210,39 @@ def get_tickets(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    tickets = db.query(Ticket).filter(
-        Ticket.user_id == current_user.id
-    ).all()
+    try:
+        tickets = db.query(Ticket).filter(
+            Ticket.user_id == current_user.id
+        ).all()
 
-    return tickets
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error while fetching tickets"
+        )
+
+    results = []
+
+    for ticket in tickets:
+        decision = None
+
+        if ticket.decision:
+            decision = {
+                "action": ticket.decision.action,
+                "reason": ticket.decision.reason,
+                "confidence": ticket.decision.confidence,
+                "sources": json.loads(ticket.decision.sources)
+            }
+
+        results.append({
+            "id": ticket.id,
+            "message": ticket.message,
+            "created_at": ticket.created_at,
+            "decision": decision
+        })
+
+    return results
+
 
 @app.get(
     "/tickets/{ticket_id}",
@@ -155,10 +253,17 @@ def get_ticket(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    ticket = db.query(Ticket).filter(
-        Ticket.id == ticket_id,
-        Ticket.user_id == current_user.id
-    ).first()
+    try:
+        ticket = db.query(Ticket).filter(
+            Ticket.id == ticket_id,
+            Ticket.user_id == current_user.id
+        ).first()
+
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error while fetching ticket"
+        )
 
     if ticket is None:
         raise HTTPException(
@@ -166,4 +271,19 @@ def get_ticket(
             detail="Ticket not found"
         )
 
-    return ticket
+    decision = None
+
+    if ticket.decision:
+        decision = {
+            "action": ticket.decision.action,
+            "reason": ticket.decision.reason,
+            "confidence": ticket.decision.confidence,
+            "sources": json.loads(ticket.decision.sources)
+        }
+
+    return {
+        "id": ticket.id,
+        "message": ticket.message,
+        "created_at": ticket.created_at,
+        "decision": decision
+    }

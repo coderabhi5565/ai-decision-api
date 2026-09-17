@@ -32,3 +32,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Generated RAG vector store
+data/vector_store/
