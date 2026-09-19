@@ -7,19 +7,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
 from sqlalchemy.orm import Session
-
 from .database import get_db
 from .models import User
-
-
 load_dotenv()
-
 
 JWT_SECRET = os.getenv("JWT_SECRET")
 
 if not JWT_SECRET:
     raise RuntimeError("JWT_SECRET is not configured")
-
 
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
@@ -28,7 +23,6 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 password_hash = PasswordHash.recommended()
 
 security = HTTPBearer()
-
 
 def hash_password(password: str) -> str:
     return password_hash.hash(password)

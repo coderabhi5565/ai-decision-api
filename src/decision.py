@@ -1,12 +1,13 @@
 import os
-from typing import Literal
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
+from typing import Literal
 
 from .retrieval import retrieve_relevant_chunks
+from .policy_guard import apply_policy_guard
 
 
 load_dotenv()
@@ -31,6 +32,7 @@ AllowedAction = Literal[
 
 class DecisionOutput(BaseModel):
     action: AllowedAction
+
     confidence: float = Field(
         ge=0.0,
         le=1.0
@@ -139,6 +141,7 @@ def make_decision(
         decision = DecisionOutput.model_validate_json(
             response.text
         )
+
     except Exception as exc:
         raise RuntimeError(
             "Gemini returned an invalid decision"
@@ -149,11 +152,26 @@ def make_decision(
         for chunk in retrieved_chunks
     }
 
-    invalid_sources = set(decision.sources) - available_sources
+    invalid_sources = (
+        set(decision.sources) - available_sources
+    )
 
     if invalid_sources:
         raise RuntimeError(
             "Gemini returned a source that was not retrieved"
+        )
+
+    final_action, guard_reason = apply_policy_guard(
+        ticket_message,
+        decision.action
+    )
+
+    if guard_reason:
+        decision = decision.model_copy(
+            update={
+                "action": final_action,
+                "reason": guard_reason
+            }
         )
 
     return decision
